@@ -1,5 +1,7 @@
 package com.nexusai.app.ai.security
 
+import android.util.Log
+
 data class ScanResult(
     val isPermitted: Boolean,
     val text: String,
@@ -9,13 +11,22 @@ data class ScanResult(
 class ConstitutionalGuard {
 
     companion object {
+        private const val TAG = "ConstitutionalGuard"
+
         private val PATRONES_PROHIBIDOS = listOf(
+            // Odio y discriminación
             Regex("odio\\s+(a|hacia|racial|étnico|religioso)", RegexOption.IGNORE_CASE),
             Regex("discurso\\s+de\\s+odio", RegexOption.IGNORE_CASE),
             Regex("violencia\\s+(racial|étnica|religiosa|de género)", RegexOption.IGNORE_CASE),
             Regex("superioridad\\s+(racial|étnica|religiosa)", RegexOption.IGNORE_CASE),
             Regex("limpieza\\s+étnica", RegexOption.IGNORE_CASE),
             Regex("genocidio", RegexOption.IGNORE_CASE),
+            // Incitación a la violencia y discriminación religiosa
+            Regex("incitación\\s+(a\\s+)?(la\\s+)?violencia", RegexOption.IGNORE_CASE),
+            Regex("exterminio", RegexOption.IGNORE_CASE),
+            Regex("aniquilación\\s+(de|religiosa|étnica)", RegexOption.IGNORE_CASE),
+            Regex("conversión\\s+(forzada|obligatoria)", RegexOption.IGNORE_CASE),
+            Regex("odie\\s+(a|a los|a las)", RegexOption.IGNORE_CASE),
         )
 
         const val DIRECTIVA_CONSTITUCIONAL = """
@@ -40,9 +51,22 @@ class ConstitutionalGuard {
         """.trimIndent()
     }
 
+    /**
+     * Construye el System Prompt completo inyectando la Directiva Constitucional (DUDH)
+     como capa base e inquebrantable antes del prompt de personalidad del perfil.
+     * Este método debe ser invocado por LocalInferenceEngine para ensamblar
+     el prompt del sistema definitivo.
+     */
+    fun buildSystemPrompt(perfilPrompt: String): String {
+        val systemPrompt = "$DIRECTIVA_CONSTITUCIONAL\n\n$perfilPrompt"
+        Log.d(TAG, "System Prompt ensamblado con Directiva DUDH + perfil")
+        return systemPrompt
+    }
+
     fun scanPrompt(prompt: String): ScanResult {
         for (patron in PATRONES_PROHIBIDOS) {
             if (patron.containsMatchIn(prompt)) {
+                Log.w(TAG, "Prompt bloqueado por patrón: ${patron.pattern}")
                 return ScanResult(
                     isPermitted = false,
                     text = prompt,
@@ -60,6 +84,7 @@ class ConstitutionalGuard {
     fun scanResponse(response: String): String {
         for (patron in PATRONES_PROHIBIDOS) {
             if (patron.containsMatchIn(response)) {
+                Log.w(TAG, "Respuesta filtrada por patrón: ${patron.pattern}")
                 return RESPUESTA_RECHAZO
             }
         }
