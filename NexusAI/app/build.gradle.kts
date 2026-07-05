@@ -82,4 +82,6 @@ dependencies {
 
     implementation(libs.mediapipe.tasks.genai)
     implementation(libs.pdfbox.android)
+
+    implementation(libs.androidx.work.runtime.ktx)
 }

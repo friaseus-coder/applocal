@@ -4,7 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.nexusai.app.ai.security.ConstitutionalGuard
+import com.nexusai.app.data.download.DownloadState
+import com.nexusai.app.data.download.ModelDownloadManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -181,5 +184,19 @@ class LocalInferenceEngine(private val context: Context) : InferenceEngine {
         } catch (e: Exception) {
             Log.e(TAG, "Error al liberar recursos del modelo: ${e.message}", e)
         }
+    }
+
+    fun descargarModelo(
+        url: String,
+        fileName: String = "gemma-2-2b-it-cpu-int4.bin"
+    ) {
+        val downloadManager = ModelDownloadManager(context)
+        downloadManager.descargarModelo(url, fileName)
+        Log.d(TAG, "Descarga de modelo iniciada desde $url")
+    }
+
+    fun observarDescargaModelo(): Flow<DownloadState> {
+        val downloadManager = ModelDownloadManager(context)
+        return downloadManager.observarEstado()
     }
 }

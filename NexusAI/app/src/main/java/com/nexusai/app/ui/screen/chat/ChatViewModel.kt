@@ -57,6 +57,15 @@ class ChatViewModel(
                 _uiState.value = _uiState.value.copy(mensajes = mensajes)
             }
         }
+
+        viewModelScope.launch {
+            ragRetriever.cargarPerfilEnCache(perfilId)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        ragRetriever.limpiarCache(perfilId)
     }
 
     fun toggleWebSearch() {

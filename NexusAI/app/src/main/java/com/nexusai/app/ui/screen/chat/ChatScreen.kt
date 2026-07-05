@@ -275,7 +275,7 @@ fun ChatScreen(
                             uiState.mensajes.lastOrNull()?.id == mensaje.id
                 )
                 val videos = uiState.videosYouTube[mensaje.id]
-                if (videos != null) {
+                if (videos != null && videos.isNotEmpty()) {
                     videos.forEach { video ->
                         YouTubeCard(
                             video = video,
