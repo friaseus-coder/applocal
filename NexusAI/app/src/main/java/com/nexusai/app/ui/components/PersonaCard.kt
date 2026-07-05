@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Swords
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Architecture
 import androidx.compose.material.icons.filled.MenuBook
@@ -146,7 +146,7 @@ private fun iconoTipo(tipo: String): ImageVector {
         "GUARDIAN" -> Icons.Default.Lock
         "ORACULO" -> Icons.Default.Visibility
         "SABIO" -> Icons.Default.SelfImprovement
-        "DESAFIANTE" -> Icons.Default.Swords
+        "DESAFIANTE" -> Icons.Default.Bolt
         "BIBLIOTECARIO" -> Icons.Default.MenuBook
         "COMEDIANTE" -> Icons.Default.Mood
         else -> Icons.Default.Favorite

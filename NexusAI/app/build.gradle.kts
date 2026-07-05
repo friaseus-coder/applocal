@@ -78,7 +78,7 @@ dependencies {
 
     implementation(libs.jsoup)
 
-    implementation(libs.onnx.runtime)
+    implementation(libs.onnxruntime.android)
 
     implementation(libs.mediapipe.tasks.genai)
     implementation(libs.pdfbox.android)

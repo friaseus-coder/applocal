@@ -289,37 +289,29 @@ Flujo:
 
 #### EmbeddingEngine (`EmbeddingEngine.kt`)
 
-Genera vectores de 384 dimensiones usando un enfoque hash-based (sin red neuronal):
+Genera vectores de 384 dimensiones usando **ONNX Runtime** con el modelo `all-MiniLM-L6-v2` (o `multilingual-embeddings.onnx` para soporte multilingüe):
 
 ```
-fun generateEmbedding(text: String): FloatArray {
-    1. Normalizar: lowercase + trim
-    2. Tokenizar por whitespace
-    3. Para cada palabra (índice i):
-        hash = word.hashCode()
-        idx = (i * 31 + hash) % 384
-        vector[idx] += 1.0 / totalWords
-    4. Normalizar L2 (dividir por magnitud euclidiana)
-}
+1. Cargar modelo .onnx desde assets + vocab.txt
+2. Tokenizar con WordPiece: [CLS] + tokens + [SEP]
+3. Crear tensores ONNX: input_ids, attention_mask, token_type_ids
+4. Ejecutar inferencia ONNX → output tensor
+5. CLS pooling: tomar el primer vector (índice 0)
+6. Normalizar L2 (dividir por magnitud euclidiana)
 ```
 
 | Método | Descripción |
 |---|---|
-| `generateEmbedding(text)` | Vector 384-D para un texto |
+| `generateEmbedding(text)` | Vector 384-D para un texto via ONNX |
 | `generateEmbeddings(texts)` | Batch de vectores para lista de textos |
 | `cosineSimilarity(a, b)` | Similitud coseno entre dos vectores |
+| `isLoaded()` | Estado del modelo ONNX |
 
-#### VectorDatabase (`VectorDatabase.kt`)
+El tokenizador WordPiece maneja acentos (es/fr/ca), texto árabe RTL y devanagari (hi) sin fallos. Unknown tokens → ID 100.
 
-Base de datos vectorial en memoria con `Mutex` para thread-safety.
+#### RAGRetriever (`RAGRetriever.kt`)
 
-| Método | Descripción |
-|---|---|
-| `insert(record)` | Inserta un `VectorRecord` (id, perfilId, text, vector) |
-| `insertAll(records)` | Inserción batch |
-| `search(queryVector, perfilId, topK)` | Búsqueda por similitud coseno filtrada por perfil |
-| `deleteByPerfil(perfilId)` | Elimina todos los registros de un perfil |
-| `count()` | Número total de registros |
+Orquesta la recuperación semántica sin base de datos vectorial separada — lee vectores serializados como CSV desde Room:
 
 #### RAGRetriever (`RAGRetriever.kt`)
 
@@ -333,6 +325,47 @@ Orquesta la recuperación semántica:
 5. Ordenar descendente y tomar top-K (default 3)
 6. Formatear como contexto: "- \"fragmento\""
 ```
+
+### 6.5 BuscadorYouTubeLocal (`ai/web/BuscadorYouTubeLocal.kt`)
+
+Búsqueda gratuita de vídeos de YouTube mediante scraping de DuckDuckGo:
+
+```
+1. LLM genera etiqueta [BUSCAR_YOUTUBE: 'consulta'] en su respuesta
+2. ChatViewModel extrae la consulta con regex
+3. BuscadorYouTubeLocal.buscarVideos(consulta) → GET duckduckgo con site:youtube.com
+4. Parsea resultados → List<VideoYouTube>(titulo, url)
+5. Limpia la URL del redireccionamiento de DuckDuckGo (uddg=)
+6. Muestra tarjeta YouTubeCard en el chat
+```
+
+**Data class**: `VideoYouTube(titulo: String, url: String)`
+
+**Métodos**:
+| Método | Descripción |
+|---|---|
+| `buscarVideos(consulta)` | Busca top 2 vídeos de YouTube |
+| `extraerConsulta(texto)` | Extrae query de `[BUSCAR_YOUTUBE: '...']` |
+| `limpiarRespuesta(texto)` | Remueve la etiqueta del texto visible |
+
+**Ventaja**: Coste $0, sin API key de YouTube, sin servidor proxy.
+
+### 6.6 Soporte Multilingüe
+
+La aplicación soporta **6 idiomas** mediante recursos Android (`strings.xml`):
+
+| Locale | Carpeta | Estado |
+|---|---|---|
+| Inglés (default) | `values/` | ✅ |
+| Español | `values-es/` | ✅ |
+| Catalán | `values-ca/` | ✅ |
+| Francés | `values-fr/` | ✅ |
+| Árabe | `values-ar/` | ✅ |
+| Hindi | `values-hi/` | ✅ |
+
+**Mecanismo**: Android selecciona automáticamente el `strings.xml` según el locale del dispositivo. `PromptBuilder` usa `context.getString(R.string.prompt_xxx)` — sin lógica condicional en Kotlin.
+
+**14 recursos por idioma**: `dudh_directive` + 13 prompts de perfil.
 
 ### 6.3 ConstitutionalGuard (`ai/security/ConstitutionalGuard.kt`)
 
@@ -357,14 +390,17 @@ Sistema de seguridad basado en la Declaración Universal de Derechos Humanos.
 
 ### 6.4 AvatarLegacyEngine (`ai/legacy/AvatarLegacyEngine.kt`)
 
-Procesa documentos para crear perfiles personalizados:
+Procesa documentos (TXT y PDF) para crear perfiles personalizados usando **PDFBox Android**:
 
 ```
-procesarDocumento(uri, perfilId, chunkSize=300):
-1. Leer texto desde URI (contentResolver.openInputStream)
-2. Dividir en párrafos por "\n\n"
-3. Agrupar párrafos en chunks de ~300 caracteres
-4. Generar embeddings para cada chunk
+procesarDocumento(uri, perfilId, chunkSize=400):
+1. Detectar tipo: MIME application/pdf o text/plain
+2. Si PDF → PDFBoxResourceLoader.init() + PDDocument.load() + PDFTextStripper
+3. Si TXT → leer via contentResolver.openInputStream()
+4. Dividir en párrafos, agrupar en chunks de ~400 caracteres
+5. Cortar siempre por frase completa, sin romper palabras
+6. Generar embeddings ONNX para cada chunk
+7. Insertar en Room (MemoriaPerfilEntity) con vector serializado como CSV
 5. Eliminar memorias existentes del perfil
 6. Insertar nuevos chunks con vectores serializados
 ```
@@ -375,41 +411,55 @@ procesarDocumento(uri, perfilId, chunkSize=300):
 
 ### LocalInferenceEngine (`domain/llm/LocalInferenceEngine.kt`)
 
+Motor de inferencia real con **MediaPipe GenAI** (Google):
+
 ```kotlin
 class LocalInferenceEngine(private val context: Context) {
+    private var llmInference: LlmInference? = null
     private var isModelLoaded = false
-    private var modelPath: String? = null
-    private val guard = ConstitutionalGuard()
 }
 ```
 
 | Método | Descripción |
 |---|---|
-| `loadModel(modelFileName)` | Verifica existencia del archivo .bin/.gguf en `context.filesDir` |
-| `generateResponse(prompt, perfilPrompt, ragContext, webContext, callback)` | Pipeline completa: build prompt → scan → inferencia → scan → callback |
+| `loadModel(modelFileName)` | Busca archivo .bin en `context.filesDir`, inicializa `LlmInference.createFromOptions()` |
+| `generateResponse(prompt, tipoPerfil, ragContext, webContext, callback)` | Pipeline completa: PromptBuilder → scan → MediaPipe infer → scan → callback |
 | `generateJsonExtraction(userMessage)` | Prompt especializado para extraer datos JSON de gustos |
-| `isReady()` | Estado del modelo |
-| `unloadModel()` | Libera recursos |
+| `isReady()` | Estado del modelo (`llmInference != null`) |
+| `unloadModel()` | Libera recursos (`llmInference?.close()`) |
 
 **Pipeline de `generateResponse`**:
 ```
-1. PromptBuilder.build() → ensambla: perfilPrompt + ragContext + webContext + historial + mensaje
+1. PromptBuilder(context).build(tipoPerfil, ragContext, webContext, historial, mensaje)
+   → resuelve prompts desde strings.xml (locale-aware)
 2. guard.scanPrompt(fullPrompt) → verifica seguridad
 3. Si no permitido → retorna respuesta de rechazo
-4. runInference(safePrompt) → ejecuta el modelo local
+4. llmInference.generateResponse(safePrompt) → MediaPipe ejecuta en GPU/NPU
 5. guard.scanResponse(response) → verifica seguridad de la respuesta
-6. callback(response) → guarda respuesta en BD, extrae gustos en segundo plano
+6. callback(response) → guarda en BD, extrae gustos, detecta [BUSCAR_YOUTUBE:]
 ```
 
-**Estado actual**: `simulateLocalInference()` es un stub que retorna un mensaje de simulación. La integración real con MediaPipe/llama.cpp vía JNI está preparada para conectarse en `runInference()`.
+**Parámetros de inferencia**: temperature 0.6f, maxTokens 512.
+
+**Modelo**: archivo .bin (ej. `gemma-2-2b-it-cpu-int4.bin`) debe estar en `context.filesDir`. No se incluye en el APK; se copia manualmente vía ADB o Device File Explorer.
 
 ### PromptBuilder (`domain/llm/PromptBuilder.kt`)
 
-Ensamblador de prompts con dos modos:
+Ensamblador de prompts con resolución dinámica desde `strings.xml` (locale-aware).
+
+**Clase**: `class PromptBuilder(context: Context)` — requiere `Context` para acceder a recursos Android.
+
+**Resolución de perfiles**: `resolverPromptPerfil(tipoPerfil)` mapea tipos a `R.string.prompt_xxx`. Si no existe, fallback a `prompt_legacy_avatar`.
+
+**Perfiles soportados (14)**:
+`AMIGO`, `JEFE`, `ANALISTA`, `ANIMADOR`, `PSICOLOGO`, `PAREJA`, `CRISTIANO`, `MUSULMAN`, `BUDISTA`, `RABINO`, `HINDUISTA`, `ESTOICO`, `ENTRENADOR`, `LEGACY_AVATAR`
+
+**Directiva DUDH**: `resolverDirectivaDUDH()` lee `R.string.dudh_directive` — se traduce automáticamente con el locale del dispositivo.
 
 **Modo normal** (`build`):
 ```
-[perfilPrompt]
+[dudh_directive]  ← automática según locale
+[perfilPrompt]    ← desde strings.xml
 [CONTEXTO RAG LOCAL] (si existe)
 [INFORMACIÓN RECIENTE DE INTERNET] (si búsqueda web activada)
 [HISTORIAL RECIENTE] (últimos mensajes)
@@ -420,6 +470,7 @@ Respuesta:
 
 **Modo legado** (`buildForLegacyAvatar`):
 ```
+[dudh_directive]
 [IDENTIDAD DEL COMPAÑERO]
 Actúas como {nombre}. Hablas en primera persona.
 [FRAGMENTOS DE MEMORIAS RECUPERADOS DEL RAG LOCAL]
@@ -488,7 +539,7 @@ Tres rutas con transiciones slide + fade:
 ## 10. Dependencias y Librerías
 
 | Librería | Versión | Propósito |
-|---|---|---|
+|---|---|---|---|
 | Kotlin | 2.1.0 | Lenguaje |
 | AGP | 8.7.3 | Build system |
 | Compose BOM | 2024.12.01 | UI declarativa |
@@ -500,8 +551,10 @@ Tres rutas con transiciones slide + fade:
 | Activity Compose | 1.9.3 | Activity + Compose bridge |
 | Coroutines | 1.9.0 | Async/concurrencia |
 | Koin | 4.0.0 | DI (declarada, integración pendiente) |
-| Jsoup | 1.18.3 | HTML parsing (web scraping) |
-| ONNX Runtime Android | 1.20.0 | ML inference (embeddings, LLM) |
+| Jsoup | 1.18.3 | HTML parsing (web scraping, YouTube search) |
+| ONNX Runtime Android | 1.17.1 | ML inference (embeddings con all-MiniLM-L6-v2) |
+| MediaPipe GenAI | 0.10.14 | LLM inference local (Gemma 2 2B) |
+| PDFBox Android | 2.0.27.0 | Extracción de texto de PDFs |
 
 ---
 
@@ -517,11 +570,11 @@ Tres rutas con transiciones slide + fade:
 
 ### Estrategia de Distribución del Modelo
 
-1. APK base (~45 MB): UI, base de datos, motor de embeddings.
-2. Primera ejecución: descarga del modelo LLM (.gguf) a `context.filesDir`.
+1. APK base (~45 MB): UI, base de datos, motor de embeddings ONNX.
+2. Modelo LLM (.bin) debe copiarse manualmente a `context.filesDir` vía ADB o Device File Explorer (no incluido en APK por tamaño).
 3. Modelos recomendados:
-   - Llama 3.2 3B Instruct (Meta) — ~2.0 GB, mejor rendimiento general en español.
-   - Gemma 2 2B Instruct (Google) — ~1.6 GB, optimizado para hardware Android.
+   - Gemma 2 2B Instruct (Google) cuantizado int4 — ~1.6 GB, optimizado para MediaPipe GenAI.
+   - El modelo se carga con `LlmInference.createFromOptions()`.
 
 ---
 
@@ -578,9 +631,12 @@ ChatViewModel.sendMessage(text)
 | Extracción de gustos | ✅ Implementado | JSON extraction vía LLM |
 | Chat en tiempo real | ✅ Implementado | StateFlow, auto-scroll |
 | Memoria de usuario UI | ✅ Implementado | CRUD gustos, categorías, limpiar todo |
-| **Inferencia LLM real** | ⚠️ Stub | `simulateLocalInference()` — pendiente conectar MediaPipe/llama.cpp |
+| **Inferencia LLM** | ✅ Implementado | MediaPipe GenAI, Gemma 2 2B int4 |
 | **DI con Koin** | ⚠️ Declarado | Dependencia añadida, sin módulos configurados |
-| **Carga de PDF** | ⚠️ Parcial | `AvatarLegacyEngine` usa `contentResolver`, falta implementación específica para PDF |
+| **Carga de PDF** | ✅ Implementado | PDFBox Android, detección MIME |
+| **Búsqueda YouTube** | ✅ Implementado | DuckDuckGo scraping + BuscadorYouTubeLocal |
+| **Soporte multilingüe** | ✅ Implementado | 6 idiomas: EN, ES, CA, FR, AR, HI |
+| **Perfil Preparador Físico** | ✅ Implementado | ENTRENADOR con búsqueda de vídeos |
 | Exportación de conversaciones | ❌ Pendiente | — |
 | Perfiles personalizados | ❌ Pendiente | Solo avatares de legado por ahora |
 | Screen de Ajustes | ❌ Pendiente | Tab existente en BottomNavBar sin contenido |

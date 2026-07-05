@@ -56,6 +56,7 @@ import com.nexusai.app.domain.llm.LocalInferenceEngine
 import com.nexusai.app.domain.usecase.ExtractGustosUseCase
 import com.nexusai.app.ui.components.ChatBubble
 import com.nexusai.app.ui.components.InputBar
+import com.nexusai.app.ui.components.YouTubeCard
 import com.nexusai.app.ui.theme.Background
 import com.nexusai.app.ui.theme.OnSurfaceVariant
 import com.nexusai.app.ui.theme.OutlineVariant
@@ -78,7 +79,7 @@ fun ChatScreen(
     val buscadorWeb = remember { BuscadorWebLocal() }
     val guard = remember { ConstitutionalGuard() }
 
-    val viewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+    val viewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
         factory = ChatViewModel.Factory(
             perfilId = perfilId,
             perfilRepository = PerfilRepository(app.perfilDao),
@@ -151,7 +152,7 @@ fun ChatScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = uiState.perfil?.nombre ?: "Cargando...",
-                            fontWeight = FontWeight.Semibold,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 20.sp,
                             lineHeight = 28.sp,
                             color = Primary
@@ -273,6 +274,15 @@ fun ChatScreen(
                     isLastAi = mensaje.remitente == "IA" &&
                             uiState.mensajes.lastOrNull()?.id == mensaje.id
                 )
+                val videos = uiState.videosYouTube[mensaje.id]
+                if (videos != null) {
+                    videos.forEach { video ->
+                        YouTubeCard(
+                            video = video,
+                            modifier = Modifier.padding(start = 40.dp)
+                        )
+                    }
+                }
             }
 
             if (uiState.isLoading) {

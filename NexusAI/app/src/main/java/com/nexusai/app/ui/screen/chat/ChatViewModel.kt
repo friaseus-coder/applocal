@@ -7,12 +7,13 @@ import com.nexusai.app.ai.rag.EmbeddingEngine
 import com.nexusai.app.ai.rag.RAGRetriever
 import com.nexusai.app.ai.security.ConstitutionalGuard
 import com.nexusai.app.ai.web.BuscadorWebLocal
+import com.nexusai.app.ai.web.BuscadorYouTubeLocal
+import com.nexusai.app.ai.web.VideoYouTube
 import com.nexusai.app.data.model.MensajeChat
 import com.nexusai.app.data.model.PerfilIA
 import com.nexusai.app.data.repository.ChatRepository
 import com.nexusai.app.data.repository.PerfilRepository
 import com.nexusai.app.domain.llm.LocalInferenceEngine
-import com.nexusai.app.domain.llm.PromptBuilder
 import com.nexusai.app.domain.usecase.ExtractGustosUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,7 +26,8 @@ data class ChatUiState(
     val mensajes: List<MensajeChat> = emptyList(),
     val perfil: PerfilIA? = null,
     val isLoading: Boolean = false,
-    val isWebSearchEnabled: Boolean = false
+    val isWebSearchEnabled: Boolean = false,
+    val videosYouTube: Map<Long, List<VideoYouTube>> = emptyMap()
 )
 
 class ChatViewModel(
@@ -36,7 +38,8 @@ class ChatViewModel(
     private val ragRetriever: RAGRetriever,
     private val buscadorWeb: BuscadorWebLocal,
     private val extractGustosUseCase: ExtractGustosUseCase,
-    private val guard: ConstitutionalGuard
+    private val guard: ConstitutionalGuard,
+    private val buscadorYouTube: BuscadorYouTubeLocal = BuscadorYouTubeLocal()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -84,13 +87,25 @@ class ChatViewModel(
 
             val result = inferenceEngine.generateResponse(
                 prompt = text,
-                perfilPrompt = perfil.promptSistemaBase,
+                tipoPerfil = perfil.tipo,
                 ragContext = ragContext,
                 webContext = webContext,
                 callback = { response ->
                     viewModelScope.launch {
-                        chatRepository.sendMessage(perfilId, "IA", response)
+                        val consultaYouTube = BuscadorYouTubeLocal.extraerConsulta(response)
+                        val respuestaLimpia = BuscadorYouTubeLocal.limpiarRespuesta(response)
+
+                        chatRepository.sendMessage(perfilId, "IA", respuestaLimpia)
                         extractGustosUseCase(text)
+
+                        if (consultaYouTube != null) {
+                            val videos = buscadorYouTube.buscarVideos(consultaYouTube)
+                            val currentState = _uiState.value
+                            val mensajeId = currentState.mensajes.lastOrNull()?.id ?: return@launch
+                            _uiState.value = currentState.copy(
+                                videosYouTube = currentState.videosYouTube + (mensajeId to videos)
+                            )
+                        }
                     }
                 }
             )

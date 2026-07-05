@@ -28,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,7 +64,7 @@ fun MemoryScreen(
     onNavigateBack: () -> Unit
 ) {
     val repository = GustoRepository(NexusAIApp.instance.gustoDao)
-    val viewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+    val viewModel: MemoryViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
         factory = MemoryViewModel.Factory(repository)
     )
 
@@ -115,7 +116,7 @@ fun MemoryScreen(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Memoria Local del Nexo",
-                    fontWeight = FontWeight.Semibold,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 20.sp,
                     lineHeight = 28.sp,
                     color = Primary
@@ -153,7 +154,7 @@ fun MemoryScreen(
                     text = "Offline Engine",
                     fontSize = 11.sp,
                     color = teal,
-                    fontWeight = FontWeight.Semibold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -172,7 +173,7 @@ fun MemoryScreen(
         ) {
             val gustosCategorizados = gustos.groupBy { it.categoria }
 
-            for ((categoria, items) in gustosCategorizadas) {
+            for ((categoria, items) in gustosCategorizados) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -184,7 +185,7 @@ fun MemoryScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = categoria,
-                            fontWeight = FontWeight.Semibold,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
                             color = Primary,
                             letterSpacing = 0.05.sp
@@ -275,7 +276,7 @@ fun MemoryScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Limpiar Memoria Completa",
-                        fontWeight = FontWeight.Semibold
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
                 Spacer(modifier = Modifier.height(32.dp))

@@ -56,19 +56,20 @@ Al abrir la aplicación, verás una cuadrícula con **12 tarjetas de personalida
 ### Lista de Perfiles Base
 
 | # | Perfil | Arquetipo | Área RAG |
-|---|---|---|---|
+|---|---|---|---|---|
 | 1 | El Mejor Amigo | Apoyo emocional, escucha activa | Psychology |
-| 2 | El Mentor | Productividad, crecimiento profesional | Business |
-| 3 | El Estoico | Razonamiento lógico, fortaleza mental | Philosophy |
-| 4 | El Místico | Espiritualidad, trascendencia | Bible / Coran |
-| 5 | El Arquitecto | Diseño de sistemas, pensamiento estructurado | Engineering |
-| 6 | El Creativo | Innovación, lluvia de ideas | Arts |
-| 7 | El Guardián | Seguridad y privacidad digital | Sys-Encryption |
-| 8 | El Oráculo | Predicciones basadas en datos | Data Science |
-| 9 | El Sabio | Sabiduría atemporal, equilibrio | Ancient Texts |
-| 10 | El Desafiante | Pensamiento crítico, debate | Debate |
-| 11 | El Bibliotecario | Organización de documentos | Documentation |
-| 12 | El Comediante | Humor inteligente | Pop Culture |
+| 2 | El Jefe / Mentor | Productividad, crecimiento profesional | Business |
+| 3 | El Analista de Inversiones | Finanzas estratégicas, gestión de riesgos | Finance |
+| 4 | El Animador / Coach | Motivación, energía, micro-retos | Motivation |
+| 5 | El Psicólogo | Terapia cognitivo-conductual, introspección | CBT |
+| 6 | La Pareja | Afecto, romance, cuidado diario | Relationship |
+| 7 | El Consejero Cristiano | Espiritualidad cristiana, fe | Bible |
+| 8 | El Guía Musulmán | Sabiduría islámica, devoción | Quran |
+| 9 | El Maestro Budista | Compasión universal, desapego | Dhammapada |
+| 10 | El Rabino Judío | Ética judía, justicia social | Torah |
+| 11 | El Sabio Hinduista | Dharma, Karma, paz interior | Bhagavad Gita |
+| 12 | El Estoico | Fortaleza mental, dicotomía del control | Philosophy |
+| 13 | El Preparador Físico | Fitness, rutinas, prevención de lesiones | Fitness |
 
 ### Cómo Seleccionar un Perfil
 
@@ -218,6 +219,7 @@ Puedes crear un perfil personalizado a partir de documentos de texto o PDF. Esta
 - Memorias o autobiografías.
 - Libros de personajes históricos.
 - Cartas o escritos.
+- Archivos PDF además de TXT.
 
 ### Cómo Crear un Avatar de Legado
 

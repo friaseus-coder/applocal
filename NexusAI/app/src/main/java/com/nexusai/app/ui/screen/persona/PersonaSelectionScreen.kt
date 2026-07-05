@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.nexusai.app.NexusAIApp
 import com.nexusai.app.data.repository.PerfilRepository
@@ -54,7 +55,7 @@ fun PersonaSelectionScreen(
     onPersonaSelected: (Long) -> Unit
 ) {
     val repository = PerfilRepository(NexusAIApp.instance.perfilDao)
-    val viewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+    val viewModel: PersonaSelectionViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
         factory = PersonaSelectionViewModel.Factory(repository)
     )
 

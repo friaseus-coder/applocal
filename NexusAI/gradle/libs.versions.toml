@@ -9,7 +9,7 @@ navigation = "2.8.5"
 coroutines = "1.9.0"
 koin = "4.0.0"
 jsoup = "1.18.3"
-onnx = "1.20.0"
+onnx = "1.17.1"
 mediapipe-genai = "0.10.14"
 pdfbox-android = "2.0.27.0"
 
@@ -42,7 +42,7 @@ koin-compose = { group = "io.insert-koin", name = "koin-androidx-compose", versi
 
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
-onnx-runtime = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnx" }
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnx" }
 
 mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipe-genai" }
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfbox-android" }

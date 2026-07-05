@@ -12,7 +12,7 @@ interface InferenceEngine {
     suspend fun loadModel(modelFileName: String): Result<Unit>
     suspend fun generateResponse(
         prompt: String,
-        perfilPrompt: String,
+        tipoPerfil: String,
         ragContext: String = "",
         webContext: String = "",
         callback: (String) -> Unit
@@ -33,6 +33,7 @@ class LocalInferenceEngine(private val context: Context) : InferenceEngine {
     private var llmInference: LlmInference? = null
     private var isModelLoaded = false
     private val guard = ConstitutionalGuard()
+    private val promptBuilder = PromptBuilder(context)
 
     override suspend fun loadModel(modelFileName: String): Result<Unit> {
         return withContext(Dispatchers.IO) {
@@ -75,32 +76,36 @@ class LocalInferenceEngine(private val context: Context) : InferenceEngine {
 
     override suspend fun generateResponse(
         prompt: String,
-        perfilPrompt: String,
+        tipoPerfil: String,
         ragContext: String,
         webContext: String,
         callback: (String) -> Unit
     ): Result<String> = withContext(Dispatchers.Default) {
         try {
-            // Inyectar la Directiva Suprema de Seguridad (DUDH) como capa base del sistema
-            val promptSeguro = guard.buildSystemPrompt(perfilPrompt)
-
-            val fullPrompt = PromptBuilder.build(
-                perfilPrompt = promptSeguro,
+            // Construir el prompt completo: Directiva DUDH + personalidad + contexto
+            // PromptBuilder resuelve el texto del perfil desde strings.xml según el tipo
+            // y la Directiva DUDH desde R.string.dudh_directive para soporte multi-idioma
+            val fullPrompt = promptBuilder.build(
+                tipoPerfil = tipoPerfil,
                 ragContext = ragContext,
                 webContext = webContext,
                 userMessage = prompt,
                 historial = ""
             )
 
+            // Escaneo de seguridad constitucional antes de inferir
             val safePrompt = guard.scanPrompt(fullPrompt)
             if (!safePrompt.isPermitted) {
-                Log.w(TAG, "Prompt bloqueado por ConstitutionalGuard")
+                Log.w(TAG, "Prompt bloqueado por ConstitutionalGuard — devolviendo respuesta de seguridad")
                 return@withContext Result.success(safePrompt.response)
             }
 
+            Log.d(TAG, "Prompt consolidado de ${safePrompt.text.length} caracteres enviado a MediaPipe")
             val response = runInference(safePrompt.text)
 
+            // Escaneo posterior de la respuesta generada
             val safeResponse = guard.scanResponse(response)
+            Log.d(TAG, "Respuesta generada (${safeResponse.length} caracteres) verificada por ConstitutionalGuard")
             callback(safeResponse)
             Result.success(safeResponse)
         } catch (e: Exception) {
@@ -116,12 +121,26 @@ class LocalInferenceEngine(private val context: Context) : InferenceEngine {
             val extractionPrompt = """
                 A partir del siguiente mensaje del usuario, extrae información sobre sus gustos, intereses, disgustos o valores.
                 Devuelve ÚNICA y EXCLUSIVAMENTE un objeto JSON plano sin explicaciones, sin markdown, sin bloques de código.
+                No agregues etiquetas de código como '''json o '''. Solo el JSON.
                 Formato obligatorio: {"categoria": "CATEGORIA", "elemento": "elemento_detectado", "sentimiento": "GUSTA/NO_GUSTA"}
                 Si no hay información nueva, responde únicamente: {}
                 Texto: "$userMessage"
             """.trimIndent()
 
-            val response = runInference(extractionPrompt)
+            var response = runInference(extractionPrompt)
+
+            // Limpiar posibles bloques markdown que el modelo pudiera añadir
+            response = response
+                .replace(Regex("""^```(?:json)?\s*"""), "")
+                .replace(Regex("""\s*```$"""), "")
+                .trim()
+
+            // Validar que la respuesta sea JSON válido
+            if (response.isNotBlank() && !response.startsWith("{") && !response.startsWith("{")) {
+                Log.w(TAG, "Respuesta JSON inválida del extractor: $response")
+                response = "{}"
+            }
+
             Result.success(response)
         } catch (e: Exception) {
             Log.e(TAG, "Error en generateJsonExtraction: ${e.message}", e)
@@ -132,18 +151,20 @@ class LocalInferenceEngine(private val context: Context) : InferenceEngine {
     private suspend fun runInference(prompt: String): String {
         val engine = llmInference
         if (engine == null) {
-            val msg = "Error: Modelo no cargado. Llama a loadModel() primero."
+            val msg = "Error: El modelo de IA no está cargado. Debes invocar loadModel() antes de enviar mensajes."
             Log.w(TAG, msg)
             return msg
         }
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Ejecutando inferencia con prompt de ${prompt.length} caracteres")
+                Log.d(TAG, "Iniciando inferencia MediaPipe — prompt de ${prompt.length} caracteres")
+                val tiempoInicio = System.currentTimeMillis()
                 val respuesta = engine.generateResponse(prompt)
-                Log.d(TAG, "Inferencia completada: ${respuesta.length} caracteres de respuesta")
+                val tiempoTotal = System.currentTimeMillis() - tiempoInicio
+                Log.d(TAG, "Inferencia MediaPipe completada en ${tiempoTotal}ms — ${respuesta.length} caracteres generados")
                 respuesta
             } catch (e: Exception) {
-                Log.e(TAG, "Error durante la inferencia: ${e.message}", e)
+                Log.e(TAG, "Error durante la inferencia MediaPipe: ${e.message}", e)
                 "Error de inferencia: ${e.message}"
             }
         }

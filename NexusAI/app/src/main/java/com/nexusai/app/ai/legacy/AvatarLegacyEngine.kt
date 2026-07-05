@@ -14,6 +14,13 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
+/**
+ * Motor de procesamiento de documentos legado (PDF y TXT) para la
+ * creación de Avatars Personalizados.
+ *
+ * Convierte documentos del usuario en fragmentos semánticos indexados
+ * con vectores de embedding para búsqueda RAG.
+ */
 class AvatarLegacyEngine(
     private val context: Context,
     private val memoriaDao: MemoriaPerfilDao,
@@ -21,148 +28,271 @@ class AvatarLegacyEngine(
 ) {
 
     companion object {
-        private const val TAG = "AvatarLegacyEngine"
-        private const val TAMANO_CHUNK = 300
+        private const val TAG = "NexusAI_Legacy"
+
+        /** Longitud máxima por fragmento semántico */
+        private const val TAMANO_CHUNK = 400
     }
 
     init {
+        // Inicialización obligatoria de PDFBox para carga de fuentes nativas
         PDFBoxResourceLoader.init(context)
-        Log.d(TAG, "PDFBoxResourceLoader inicializado correctamente")
+        Log.d(TAG, "PDFBoxResourceLoader inicializado — fuentes nativas listas")
     }
 
+    // ------------------------------------------------------------------
+    // Procesamiento principal del documento
+    // ------------------------------------------------------------------
+
+    /**
+     * Procesa un documento (PDF o TXT) seleccionado por el usuario:
+     * 1. Detecta el tipo de archivo por MIME o extensión
+     * 2. Extrae el texto según el formato
+     * 3. Segmenta en fragmentos semánticos (chunks)
+     * 4. Genera embeddings ONNX para cada fragmento
+     * 5. Almacena todo en Room (reemplazando datos previos del perfil)
+     *
+     * @param uri Uri del documento seleccionado por el usuario
+     * @param perfilId ID del perfil IA al que pertenecerán las memorias
+     * @param chunkSize Tamaño máximo en caracteres por fragmento
+     * @return Result con la cantidad de fragmentos generados, o failure con descripción
+     */
     suspend fun procesarDocumento(
         uri: Uri,
         perfilId: Long,
         chunkSize: Int = TAMANO_CHUNK
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Procesando documento Uri: $uri")
+            Log.d(TAG, "Iniciando procesamiento de documento — Uri: $uri")
 
+            // --- 1. Detección dinámica del tipo de archivo ---
             val tipoMime = context.contentResolver.getType(uri) ?: ""
             val nombreArchivo = obtenerNombreArchivo(uri)
             val extension = nombreArchivo.substringAfterLast('.', "").lowercase()
 
-            Log.d(TAG, "Tipo MIME: $tipoMime, Extensión: $extension, Archivo: $nombreArchivo")
+            Log.d(TAG, "Archivo: \"$nombreArchivo\" | MIME: $tipoMime | Extensión: $extension")
 
-            val text = if (extension == "pdf" || tipoMime.contains("pdf")) {
-                extraerTextoPdf(uri)
-            } else if (extension == "txt" || tipoMime.contains("text")) {
-                extraerTextoPlano(uri)
-            } else {
-                val msg = "Formato de archivo no soportado: $extension ($tipoMime)"
-                Log.e(TAG, msg)
-                return@withContext Result.failure(Exception(msg))
+            // --- 2. Extracción de texto según formato ---
+            val texto = when {
+                extension == "pdf" || tipoMime.contains("pdf") -> extraerTextoPdf(uri)
+                extension == "txt" || tipoMime.contains("text") -> extraerTextoPlano(uri)
+                else -> {
+                    val msg = "Formato no soportado: \"$extension\" ($tipoMime). Solo se aceptan PDF y TXT."
+                    Log.e(TAG, msg)
+                    return@withContext Result.failure(Exception(msg))
+                }
             }
 
-            if (text.isBlank()) {
-                val msg = "El documento no contiene texto extraíble"
+            if (texto.isBlank()) {
+                val msg = "El documento no contiene texto extraíble. " +
+                        "Puede estar protegido por contraseña, ser un PDF escaneado (solo imágenes) o estar vacío."
                 Log.w(TAG, msg)
                 return@withContext Result.failure(Exception(msg))
             }
 
-            Log.d(TAG, "Texto extraído: ${text.length} caracteres")
+            Log.d(TAG, "Texto extraído correctamente — ${texto.length} caracteres totales")
 
-            val chunks = chunkText(text, chunkSize)
-            Log.d(TAG, "Texto segmentado en ${chunks.size} fragmentos")
+            // --- 3. Segmentación en fragmentos semánticos ---
+            val chunks = segmentarTexto(texto, chunkSize)
+            Log.d(TAG, "Texto segmentado en ${chunks.size} fragmentos de hasta $chunkSize caracteres")
 
+            // --- 4. Generación de vectores de embedding ---
             val embeddings = embeddingEngine.generateEmbeddings(chunks)
-            Log.d(TAG, "Embeddings generados para ${embeddings.size} fragmentos")
+            Log.d(TAG, "Embeddings ONNX generados: ${embeddings.size} vectores de ${embeddings.firstOrNull()?.size ?: 0} dimensiones")
 
-            val memorias = chunks.mapIndexed { index, chunk ->
+            // --- 5. Preparar entidades para Room ---
+            val memorias = chunks.mapIndexed { indice, fragmento ->
                 MemoriaPerfilEntity(
                     perfilId = perfilId,
-                    textoFragmento = chunk,
-                    vectorSerialized = embeddings[index].joinToString(",")
+                    textoFragmento = fragmento,
+                    vectorSerialized = embeddings[indice].joinToString(",")
                 )
             }
 
+            // --- 6. Reemplazar datos previos e insertar nuevos ---
             memoriaDao.deleteByPerfil(perfilId)
             memoriaDao.insertAll(memorias)
 
-            Log.d(TAG, "Guardados ${memorias.size} fragmentos en la base de datos")
+            Log.d(TAG, "Documento procesado exitosamente: ${memorias.size} fragmentos guardados en Room para el perfil $perfilId")
             Result.success(chunks.size)
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error al procesar documento: ${e.message}", e)
+            Log.e(TAG, "Error crítico al procesar documento: ${e.message}", e)
             Result.failure(e)
         }
     }
 
+    // ------------------------------------------------------------------
+    // Extracción de texto por formato
+    // ------------------------------------------------------------------
+
+    /**
+     * Extrae texto de un archivo PDF usando PDFBox.
+     * Soporta documentos de varias páginas con ordenamiento posicional.
+     * Cierra automáticamente el flujo y el documento con .use {}.
+     *
+     * @throws IllegalStateException si no se puede abrir el stream
+     * @return Texto completo extraído del PDF
+     */
     private fun extraerTextoPdf(uri: Uri): String {
         val inputStream = context.contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("No se pudo abrir el archivo PDF")
+            ?: throw IllegalStateException("No se pudo abrir el archivo PDF. " +
+                    "El ContentResolver devolvió null para la Uri proporcionada.")
 
         return inputStream.use { stream ->
             PDDocument.load(stream).use { documento ->
+                val totalPaginas = documento.numberOfPages
+                Log.d(TAG, "PDF cargado correctamente — $totalPaginas páginas detectadas")
+
+                // Verificar si el PDF está encriptado (protegido por contraseña)
+                if (documento.isEncrypted) {
+                    val msg = "El PDF está protegido por contraseña y no se puede extraer su contenido."
+                    Log.e(TAG, msg)
+                    throw SecurityException(msg)
+                }
+
                 val stripper = PDFTextStripper()
-                stripper.sortByPosition = true
-                stripper.getText(documento)
+                stripper.sortByPosition = true  // Orden lógico de lectura
+                stripper.getText(documento).also { texto ->
+                    Log.d(TAG, "Texto extraído del PDF — ${texto.length} caracteres en $totalPaginas páginas")
+                }
             }
         }
     }
 
+    /**
+     * Extrae texto de un archivo de texto plano (.txt).
+     * Usa el lector de caracteres estándar de Kotlin con codificación UTF-8.
+     *
+     * @throws IllegalStateException si no se puede abrir el stream
+     * @return Contenido completo del archivo de texto
+     */
     private fun extraerTextoPlano(uri: Uri): String {
         val inputStream = context.contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("No se pudo abrir el archivo de texto")
+            ?: throw IllegalStateException("No se pudo abrir el archivo de texto. " +
+                    "El ContentResolver devolvió null para la Uri proporcionada.")
 
-        return BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
+        return BufferedReader(InputStreamReader(inputStream)).use { lector ->
+            lector.readText().also { texto ->
+                Log.d(TAG, "Archivo de texto plano cargado — ${texto.length} caracteres")
+            }
+        }
     }
 
+    // ------------------------------------------------------------------
+    // Utilidades
+    // ------------------------------------------------------------------
+
+    /**
+     * Obtiene el nombre legible del archivo desde el ContentResolver
+     * usando el estándar OpenableColumns.DISPLAY_NAME.
+     */
     private fun obtenerNombreArchivo(uri: Uri): String {
         val cursor = context.contentResolver.query(uri, null, null, null, null)
         return cursor?.use {
             if (it.moveToFirst()) {
-                val idx = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0) it.getString(idx) else uri.lastPathSegment ?: "desconocido"
+                val indice = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (indice >= 0) it.getString(indice) else uri.lastPathSegment ?: "desconocido"
             } else {
                 uri.lastPathSegment ?: "desconocido"
             }
         } ?: uri.lastPathSegment ?: "desconocido"
     }
 
-    private fun chunkText(text: String, chunkSize: Int): List<String> {
-        val limpio = text
-            .replace(Regex("""\r\n"""), "\n")
-            .replace(Regex("""[ \t]+"""), " ")
-            .replace(Regex("""\n{3,}"""), "\n\n")
+    // ------------------------------------------------------------------
+    // Segmentación semántica
+    // ------------------------------------------------------------------
+
+    /**
+     * Divide un texto largo en fragmentos semánticos (chunks) respetando
+     * los límites de palabras y oraciones.
+     *
+     * Algoritmo:
+     * 1. Limpia espacios múltiples y saltos de página
+     * 2. Divide por párrafos (doble salto de línea)
+     * 3. Agrupa párrafos hasta alcanzar el tamaño máximo
+     * 4. Si un párrafo excede el tamaño, lo divide por oraciones
+     * 5. Garantiza que ningún corte parta una palabra a la mitad
+     *
+     * @param texto Texto limpio pre-procesado
+     * @param tamanoMaximo Caracteres máximos por fragmento
+     * @return Lista de fragmentos de texto
+     */
+    private fun segmentarTexto(texto: String, tamanoMaximo: Int): List<String> {
+        // 1. Normalizar el texto: eliminar saltos de página y espacios redundantes
+        val limpio = texto
+            .replace(Regex("""\r\n"""), "\n")               // Normalizar CR+LF → LF
+            .replace(Regex("""[ \t]+"""), " ")               // Múltiples espacios → uno
+            .replace(Regex("""\n{3,}"""), "\n\n")            // Múltiples saltos → doble salto
+            .replace(Regex("""\f"""), "\n")                  // Saltos de página → salto de línea
+            .replace(Regex("""[ \t]+\n"""), "\n")            // Espacios al final de línea
             .trim()
 
-        val chunks = mutableListOf<String>()
+        val fragmentos = mutableListOf<String>()
         val parrafos = limpio.split(Regex("""\n\n"""))
-        val currentChunk = StringBuilder()
+        val acumulador = StringBuilder()
 
+        /**
+         * Cierra el fragmento actual y lo agrega a la lista,
+         * limpiando espacios sobrantes.
+         */
         fun cerrarFragmento() {
-            val fragmento = currentChunk.toString().trim()
-            if (fragmento.isNotBlank()) {
-                chunks.add(fragmento)
+            val contenido = acumulador.toString().trim()
+            if (contenido.isNotBlank()) {
+                fragmentos.add(contenido)
             }
-            currentChunk.clear()
+            acumulador.clear()
         }
 
         for (parrafo in parrafos) {
-            val limpioParrafo = parrafo.trim()
-            if (limpioParrafo.isBlank()) continue
+            val parrafoLimpio = parrafo.trim()
+            if (parrafoLimpio.isBlank()) continue
 
-            if (currentChunk.isNotEmpty() && currentChunk.length + limpioParrafo.length + 1 > chunkSize) {
+            // Si el párrafo actual no cabe en el fragmento actual, cerrar el fragmento
+            if (acumulador.isNotEmpty() &&
+                acumulador.length + parrafoLimpio.length + 1 > tamanoMaximo
+            ) {
                 cerrarFragmento()
             }
 
-            if (limpioParrafo.length > chunkSize) {
-                // Dividir párrafos muy largos por oraciones
-                val oraciones = limpioParrafo.split(Regex("""(?<=[.!?])\s+"""))
+            // Si el párrafo individual es más largo que el tamaño máximo,
+            // dividirlo por límites de oración
+            if (parrafoLimpio.length > tamanoMaximo) {
+                // Si hay algo acumulado, cerrar primero
+                if (acumulador.isNotEmpty()) cerrarFragmento()
+
+                // Dividir el párrafo largo por oraciones
+                val oraciones = parrafoLimpio.split(Regex("""(?<=[.!?])\s+"""))
+                val oracionesAcumuladas = mutableListOf<String>()
+                var longitudOraciones = 0
+
                 for (oracion in oraciones) {
-                    if (currentChunk.isNotEmpty() && currentChunk.length + oracion.length + 1 > chunkSize) {
-                        cerrarFragmento()
+                    if (longitudOraciones + oracion.length + 1 > tamanoMaximo &&
+                        oracionesAcumuladas.isNotEmpty()
+                    ) {
+                        // Cerrar grupo actual de oraciones
+                        fragmentos.add(oracionesAcumuladas.joinToString(" ").trim())
+                        oracionesAcumuladas.clear()
+                        longitudOraciones = 0
                     }
-                    if (currentChunk.isNotEmpty()) currentChunk.append(" ")
-                    currentChunk.append(oracion)
+                    oracionesAcumuladas.add(oracion)
+                    longitudOraciones += oracion.length + 1
+                }
+
+                // Último grupo de oraciones
+                if (oracionesAcumuladas.isNotEmpty()) {
+                    fragmentos.add(oracionesAcumuladas.joinToString(" ").trim())
                 }
             } else {
-                if (currentChunk.isNotEmpty()) currentChunk.append("\n\n")
-                currentChunk.append(limpioParrafo)
+                // Párrafo normal: agregar al acumulador
+                if (acumulador.isNotEmpty()) acumulador.append("\n\n")
+                acumulador.append(parrafoLimpio)
             }
         }
 
+        // Último fragmento pendiente
         cerrarFragmento()
-        return chunks
+
+        return fragmentos
     }
 }

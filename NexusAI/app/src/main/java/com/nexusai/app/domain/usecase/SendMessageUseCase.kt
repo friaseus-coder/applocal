@@ -6,7 +6,7 @@ import com.nexusai.app.ai.web.BuscadorWebLocal
 import com.nexusai.app.data.repository.ChatRepository
 import com.nexusai.app.data.repository.PerfilRepository
 import com.nexusai.app.domain.llm.LocalInferenceEngine
-import com.nexusai.app.domain.llm.PromptBuilder
+import kotlinx.coroutines.runBlocking
 
 class SendMessageUseCase(
     private val chatRepository: ChatRepository,
@@ -38,11 +38,13 @@ class SendMessageUseCase(
 
         val result = inferenceEngine.generateResponse(
             prompt = mensaje,
-            perfilPrompt = perfil.promptSistemaBase,
+            tipoPerfil = perfil.tipo,
             ragContext = ragContext,
             webContext = webContext,
             callback = { response ->
-                chatRepository.sendMessage(perfilId, "IA", response)
+                runBlocking {
+                    chatRepository.sendMessage(perfilId, "IA", response)
+                }
                 onResponse(response)
             }
         )
